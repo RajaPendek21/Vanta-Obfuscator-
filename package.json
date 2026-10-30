@@ -1,0 +1,20 @@
+{
+  "name": "vanta-obfuscator",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev:web": "pnpm --filter @vanta/web dev",
+    "dev:api": "pnpm --filter @vanta/api dev",
+    "dev:bot": "pnpm --filter @vanta/bot dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm --filter @vanta/shared build && pnpm --filter @vanta/engine build && pnpm -r typecheck",
+    "test:engine": "pnpm --filter @vanta/engine test",
+    "test:luau": "node scripts/test-official-parser.mjs",
+    "dev:worker": "pnpm --filter @vanta/worker dev",
+    "bootstrap:obscura": "sh scripts/bootstrap-obscura.sh"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

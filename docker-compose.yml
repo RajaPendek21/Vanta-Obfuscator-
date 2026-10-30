@@ -1,0 +1,125 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vanta
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: vanta
+    volumes:
+      - vanta_pg:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vanta -d vanta"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - vanta_redis:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    restart: unless-stopped
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+      DATABASE_URL: postgresql://vanta:${POSTGRES_PASSWORD}@postgres:5432/vanta
+      REDIS_URL: redis://redis:6379
+      ACCESS_MODE: ${ACCESS_MODE:-public}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-http://localhost:4000/api/discord/oauth/callback}
+      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:8080}
+    networks: [backend, public]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      DATABASE_URL: postgresql://vanta:${POSTGRES_PASSWORD}@postgres:5432/vanta
+      REDIS_URL: redis://redis:6379
+      LUAU_COMPILE_PATH: /usr/local/bin/luau-compile
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [backend]
+    read_only: true
+    tmpfs:
+      - /tmp:size=96m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_HOST: api:4000
+    networks: [public, backend]
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+  bot:
+    profiles: ["bot"]
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      VANTA_BOT_API_KEY: ${VANTA_BOT_API_KEY:-}
+      VANTA_API_URL: http://api:4000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [public]
+    restart: unless-stopped
+volumes:
+  vanta_pg:
+  vanta_redis:
+networks:
+  backend:
+    internal: true
+  public:
+    driver: bridge

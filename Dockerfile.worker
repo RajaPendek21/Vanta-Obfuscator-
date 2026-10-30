@@ -1,0 +1,39 @@
+FROM node:22-bookworm AS luau-build
+RUN apt-get update && apt-get install -y --no-install-recommends git cmake g++ make && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone --depth 1 https://github.com/luau-lang/luau.git
+WORKDIR /src/luau
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF -DLUAU_BUILD_WEB=OFF \
+ && cmake --build build --target Luau.Compile.CLI --config Release --parallel 2
+
+FROM python:3.11-slim AS obscura-source
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt
+RUN git init obscura \
+ && git -C obscura remote add origin https://github.com/vo3pal/obscura.git \
+ && git -C obscura fetch --depth 1 origin 742770554151d82c6a12ae6e24a0e47471bc467c \
+ && git -C obscura checkout --detach FETCH_HEAD \
+ && python -m pip install --no-cache-dir --prefix=/install -r /opt/obscura/requirements.txt \
+ && rm -rf obscura/.git
+
+FROM node:22-bookworm-slim AS app-build
+WORKDIR /app
+RUN corepack enable
+COPY . .
+RUN pnpm install --no-frozen-lockfile
+RUN pnpm --filter @vanta/engine build && pnpm --filter @vanta/worker build
+
+FROM node:22-bookworm-slim
+ENV NODE_ENV=production LUAU_COMPILE_PATH=/usr/local/bin/luau-compile \
+    OBSCURA_ROOT=/opt/obscura PYTHONDONTWRITEBYTECODE=1 PYTHON_PATH=python3 \
+    PYTHONPATH=/usr/local/lib/python3.11/site-packages
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10003 --create-home vanta
+COPY --from=app-build --chown=vanta:vanta /app /app
+COPY --from=luau-build /src/luau/build/luau-compile /usr/local/bin/luau-compile
+COPY --from=obscura-source /opt/obscura /opt/obscura
+COPY --from=obscura-source /install /usr/local
+USER vanta
+CMD ["node", "apps/worker/dist/index.js"]

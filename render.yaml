@@ -1,0 +1,109 @@
+# Render Blueprint for the complete Vanta service stack.
+# Deploy from the repository root using Render's Blueprint flow.
+services:
+  - type: web
+    name: vanta-api
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vanta-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: vanta-redis
+          type: keyvalue
+          property: connectionString
+      - key: ACCESS_MODE
+        value: invite_only
+      - key: WEB_APP_URL
+        fromService:
+          name: vanta-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+
+  - type: worker
+    name: vanta-worker
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./Dockerfile.worker
+    dockerContext: .
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vanta-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: vanta-redis
+          type: keyvalue
+          property: connectionString
+      - key: WORKER_CONCURRENCY
+        value: "1"
+
+  - type: web
+    name: vanta-web
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./Dockerfile.web
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: API_HOST
+        fromService:
+          name: vanta-api
+          type: web
+          property: hostport
+
+  - type: worker
+    name: vanta-discord-bot
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./Dockerfile.bot
+    dockerContext: .
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VANTA_API_URL
+        value: http://vanta-api:4000
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        fromService:
+          name: vanta-api
+          type: web
+          envVarKey: DISCORD_CLIENT_ID
+      - key: DISCORD_GUILD_ID
+        value: ""
+
+databases:
+  - name: vanta-db
+    region: frankfurt
+    plan: basic-256mb
+    databaseName: vanta
+    user: vanta
+
+  - name: vanta-redis
+    region: frankfurt
+    plan: starter
+    ipAllowList: []

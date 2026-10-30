@@ -1,0 +1,4 @@
+repository=https://github.com/vo3pal/obscura
+commit=742770554151d82c6a12ae6e24a0e47471bc467c
+license=MIT
+runtime_mode=PARANOID

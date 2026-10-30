@@ -1,0 +1,36 @@
+name: Vanta CI
+on:
+  push:
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      REQUIRE_OBSCURA_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Bootstrap pinned Obscura engine
+        run: |
+          sh scripts/bootstrap-obscura.sh
+      - name: Build official Luau compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ make
+          git clone --depth 1 https://github.com/luau-lang/luau.git /tmp/luau
+          cmake -S /tmp/luau -B /tmp/luau/build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build /tmp/luau/build --target Luau.Compile.CLI --parallel 2
+          echo "LUAU_COMPILE_PATH=/tmp/luau/build/luau-compile" >> "$GITHUB_ENV"
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm test:engine
+      - run: node scripts/test-official-parser.mjs
+      - run: pnpm typecheck
+      - run: pnpm build
